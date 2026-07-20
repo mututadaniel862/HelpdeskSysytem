@@ -104,14 +104,27 @@ def get_users(role: str = None, db: Session = Depends(get_db),
 @app.post("/api/users", response_model=schemas.UserResponse)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db),
                 current_user: models.User = Depends(auth.get_current_user)):
-    import uuid
-    hashed = auth.get_password_hash(user.password)
-    new_user = models.User(id=str(uuid.uuid4()), name=user.name, email=user.email,
-                            password=hashed, role=user.role)
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return new_user
+    try:
+        import uuid
+        hashed = auth.get_password_hash(user.password)
+        new_user = models.User(id=str(uuid.uuid4()), name=user.name, email=user.email,
+                                password=hashed, role=user.role)
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        
+        # Pydantic serialization will fail because models.User has isActive not is_active
+        # Returning a dictionary to bypass the strict Pydantic ORM mapping bug
+        return {
+            "id": new_user.id,
+            "name": new_user.name,
+            "email": new_user.email,
+            "role": new_user.role,
+            "is_active": new_user.isActive,
+        }
+    except Exception as e:
+        import traceback
+        raise HTTPException(status_code=400, detail=traceback.format_exc())
 
 @app.patch("/api/users")
 def update_user(body: dict, db: Session = Depends(get_db),
