@@ -13,12 +13,7 @@ import models
 import schemas
 import auth
 
-# Always reset the DB schema to match our current models
-from sqlalchemy import text
-with engine.connect() as conn:
-    conn.execute(text("DROP SCHEMA public CASCADE"))
-    conn.execute(text("CREATE SCHEMA public"))
-    conn.commit()
+# Ensure tables exist
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Support Help Desk API")

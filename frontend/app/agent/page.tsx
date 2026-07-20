@@ -79,12 +79,15 @@ export default function AgentDashboard() {
 
   const fetchTickets = useCallback(async () => {
     setLoading(true);
-    const res = await apiFetch("/tickets");
-    if (res.ok) {
-      const data = await res.json();
+    try {
+      const res = await apiFetch("/tickets");
+      const data = res.ok ? await res.json() : [];
       setTickets(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error("Failed to fetch data", e);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => { fetchTickets(); }, [fetchTickets]);

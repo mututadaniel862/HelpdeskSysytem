@@ -87,16 +87,21 @@ export default function AdminDashboard() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [tRes, aRes] = await Promise.all([
-      apiFetch("/tickets"),
-      apiFetch("/users?role=AGENT")
-    ]);
-    const tr = tRes.ok ? await tRes.json() : [];
-    const ar = aRes.ok ? await aRes.json() : [];
-    
-    setTickets(Array.isArray(tr) ? tr : []);
-    setAgents(Array.isArray(ar) ? ar : []);
-    setLoading(false);
+    try {
+      const [tRes, aRes] = await Promise.all([
+        apiFetch("/tickets"),
+        apiFetch("/users?role=AGENT")
+      ]);
+      const tr = tRes.ok ? await tRes.json() : [];
+      const ar = aRes.ok ? await aRes.json() : [];
+      
+      setTickets(Array.isArray(tr) ? tr : []);
+      setAgents(Array.isArray(ar) ? ar : []);
+    } catch (e) {
+      console.error("Failed to fetch data", e);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
