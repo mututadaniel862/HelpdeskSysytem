@@ -31,16 +31,21 @@ export default function SuperAdminDashboard() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [tRes, uRes] = await Promise.all([
-      apiFetch("/tickets"),
-      apiFetch("/users")
-    ]);
-    const tr = tRes.ok ? await tRes.json() : [];
-    const ur = uRes.ok ? await uRes.json() : [];
-    
-    setTickets(Array.isArray(tr) ? tr : []);
-    setUsers(Array.isArray(ur) ? ur : []);
-    setLoading(false);
+    try {
+      const [tRes, uRes] = await Promise.all([
+        apiFetch("/tickets"),
+        apiFetch("/users")
+      ]);
+      const tr = tRes.ok ? await tRes.json() : [];
+      const ur = uRes.ok ? await uRes.json() : [];
+      
+      setTickets(Array.isArray(tr) ? tr : []);
+      setUsers(Array.isArray(ur) ? ur : []);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -65,11 +70,16 @@ export default function SuperAdminDashboard() {
   }));
 
   const createAdmin = async () => {
-    await apiFetch("/users", {
+    const res = await apiFetch("/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...adminForm, role: "ADMIN" }),
     });
+    if (!res.ok) {
+      const err = await res.text();
+      alert(`Error creating admin: ${err}`);
+      return;
+    }
     setShowCreateAdmin(false);
     setAdminForm({ name: "", email: "", password: "" });
     fetchData();

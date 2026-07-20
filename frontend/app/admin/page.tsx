@@ -144,11 +144,16 @@ export default function AdminDashboard() {
   };
 
   const createAgent = async () => {
-    await apiFetch("/users", {
+    const res = await apiFetch("/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...agentForm, role: "AGENT" }),
     });
+    if (!res.ok) {
+      const err = await res.text();
+      alert(`Error creating agent: ${err}`);
+      return;
+    }
     setShowCreateAgent(false);
     setAgentForm({ name: "", email: "", password: "" });
     fetchData();
