@@ -37,6 +37,10 @@ export default function SuperAdminDashboard() {
         apiFetch("/users")
       ]);
       const tr = tRes.ok ? await tRes.json() : [];
+      if (!uRes.ok) {
+        const err = await uRes.text();
+        alert(`Backend Error: ${err}`);
+      }
       const ur = uRes.ok ? await uRes.json() : [];
       
       setTickets(Array.isArray(tr) ? tr : []);

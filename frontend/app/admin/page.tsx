@@ -25,7 +25,11 @@ type User = {
   email: string;
   role: string;
   isActive: boolean;
+  is_approved?: boolean;
+  department?: string;
+  reason?: string;
   _count?: { assignedTickets: number };
+  metrics?: { total: number; open: number; closed: number; inProgress: number };
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -73,13 +77,12 @@ function SLABadge({ deadline }: { deadline?: string }) {
 export default function AdminDashboard() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [agents, setAgents] = useState<User[]>([]);
-  const [view, setView] = useState<"dashboard" | "tickets" | "agents" | "create">("dashboard");
+  const [clients, setClients] = useState<User[]>([]);
+  const [view, setView] = useState<"dashboard" | "tickets" | "agents" | "clients" | "integrations">("dashboard");
   const [loading, setLoading] = useState(true);
-  const [showCreateModal, setShowCreateModal] = useState(false);
   const [showCreateAgent, setShowCreateAgent] = useState(false);
+  const [integrationTab, setIntegrationTab] = useState("outlook");
 
-  // Create ticket form
-  const [form, setForm] = useState({ subject: "", customer: "", customerEmail: "", priority: "medium", assignedToId: "", message: "" });
   // Create agent form
   const [agentForm, setAgentForm] = useState({ name: "", email: "", password: "" });
 
@@ -88,15 +91,18 @@ export default function AdminDashboard() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [tRes, aRes] = await Promise.all([
+      const [tRes, aRes, cRes] = await Promise.all([
         apiFetch("/tickets"),
-        apiFetch("/users?role=AGENT")
+        apiFetch("/users?role=AGENT"),
+        apiFetch("/users?role=CLIENT")
       ]);
       const tr = tRes.ok ? await tRes.json() : [];
       const ar = aRes.ok ? await aRes.json() : [];
+      const cr = cRes.ok ? await cRes.json() : [];
       
       setTickets(Array.isArray(tr) ? tr : []);
       setAgents(Array.isArray(ar) ? ar : []);
+      setClients(Array.isArray(cr) ? cr : []);
     } catch (e) {
       console.error("Failed to fetch data", e);
     } finally {
@@ -132,17 +138,6 @@ export default function AdminDashboard() {
     tickets: tickets.filter(t => t.assignedTo?.id === a.id).length,
   }));
 
-  const createTicket = async () => {
-    await apiFetch("/tickets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    setShowCreateModal(false);
-    setForm({ subject: "", customer: "", customerEmail: "", priority: "medium", assignedToId: "", message: "" });
-    fetchData();
-  };
-
   const createAgent = async () => {
     const res = await apiFetch("/users", {
       method: "POST",
@@ -168,6 +163,15 @@ export default function AdminDashboard() {
     fetchData();
   };
 
+  const approveClient = async (id: string) => {
+    await apiFetch("/users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, isApproved: true }),
+    });
+    fetchData();
+  };
+
   const userName = user?.name || "Admin";
   const initials = userName.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase();
 
@@ -188,6 +192,8 @@ export default function AdminDashboard() {
             { key: "dashboard", icon: "📊", label: "Dashboard" },
             { key: "tickets", icon: "🎫", label: "Tickets", badge: stats.open },
             { key: "agents", icon: "👥", label: "Agents" },
+            { key: "clients", icon: "🏢", label: "Client Access", badge: clients.filter(c => !c.is_approved).length || undefined },
+            { key: "integrations", icon: "⚙️", label: "Integrations & Setup" },
           ].map(item => (
             <div
               key={item.key}
@@ -201,10 +207,6 @@ export default function AdminDashboard() {
           ))}
 
           <div className="nav-section-label">Actions</div>
-          <div className="nav-item" onClick={() => setShowCreateModal(true)}>
-            <span className="nav-icon">➕</span>
-            New Ticket
-          </div>
           <div className="nav-item" onClick={() => setShowCreateAgent(true)}>
             <span className="nav-icon">👤</span>
             Add Agent
@@ -228,14 +230,13 @@ export default function AdminDashboard() {
             {view === "dashboard" && "Dashboard Overview"}
             {view === "tickets" && "Ticket Queue"}
             {view === "agents" && "Agent Management"}
+            {view === "clients" && "Client Access Approvals"}
+            {view === "integrations" && "Integrations & Settings"}
           </span>
           <div className="topbar-search">
             <span>🔍</span>
             <input placeholder="Search tickets..." />
           </div>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowCreateModal(true)}>
-            ＋ New Ticket
-          </button>
         </div>
 
         <div className="page-body">
@@ -306,7 +307,7 @@ export default function AdminDashboard() {
                         </Pie>
                         <Tooltip
                           contentStyle={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
-                          formatter={(v: number) => [v, "tickets"]}
+                          formatter={(v: any) => [v, "tickets"]}
                         />
                       </PieChart>
                     </ResponsiveContainer>
@@ -333,7 +334,7 @@ export default function AdminDashboard() {
                         </Pie>
                         <Tooltip
                           contentStyle={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
-                          formatter={(v: number) => [v, "tickets"]}
+                          formatter={(v: any) => [v, "tickets"]}
                         />
                       </PieChart>
                     </ResponsiveContainer>
@@ -360,7 +361,7 @@ export default function AdminDashboard() {
                         <YAxis tick={{ fill: "var(--text-muted)", fontSize: 11 }} axisLine={false} tickLine={false} />
                         <Tooltip
                           contentStyle={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
-                          formatter={(v: number) => [v, "tickets"]}
+                          formatter={(v: any) => [v, "tickets"]}
                         />
                         <Bar dataKey="tickets" fill="var(--primary)" radius={[4, 4, 0, 0]} />
                       </BarChart>
@@ -419,7 +420,6 @@ export default function AdminDashboard() {
             <div className="ticket-table-card">
               <div className="table-header">
                 <h3>All Tickets ({tickets.length})</h3>
-                <button className="btn btn-primary btn-sm" onClick={() => setShowCreateModal(true)}>＋ New Ticket</button>
               </div>
               <table>
                 <thead>
@@ -469,7 +469,7 @@ export default function AdminDashboard() {
                           className="form-select"
                           style={{ width: "auto", padding: "3px 8px", fontSize: "0.75rem", background: "transparent" }}
                           value={t.assignedTo?.id || ""}
-                          onChange={e => updateTicket(t.id, { assignedToId: e.target.value })}
+                          onChange={e => updateTicket(t.id, { assigned_to_id: e.target.value })}
                         >
                           <option value="">Unassigned</option>
                           {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -507,7 +507,8 @@ export default function AdminDashboard() {
                   <tr>
                     <th>Agent</th>
                     <th>Email</th>
-                    <th>Active Tickets</th>
+                    <th>Total Tickets</th>
+                    <th>Performance Stats</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -521,14 +522,12 @@ export default function AdminDashboard() {
                         </div>
                       </td>
                       <td style={{ color: "var(--text-dim)" }}>{a.email}</td>
+                      <td style={{ fontWeight: 600 }}>{a.metrics?.total || 0} assigned</td>
                       <td>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                          <div style={{
-                            width: `${Math.min((a._count?.assignedTickets || 0) * 10, 100)}px`,
-                            height: 6, borderRadius: 3,
-                            background: "var(--primary)", opacity: 0.8
-                          }} />
-                          <span style={{ fontSize: "0.8rem" }}>{a._count?.assignedTickets || 0}</span>
+                        <div style={{ display: "flex", gap: "0.4rem", fontSize: "0.75rem", flexWrap: "wrap", maxWidth: "200px" }}>
+                          <span className="badge badge-open">Open: {a.metrics?.open || 0}</span>
+                          <span className="badge badge-resolved">Closed: {a.metrics?.closed || 0}</span>
+                          <span className="badge badge-in-progress">In-Progress: {a.metrics?.inProgress || 0}</span>
                         </div>
                       </td>
                       <td><span className={`badge ${a.isActive ? "badge-resolved" : "badge-closed"}`}>{a.isActive ? "Active" : "Inactive"}</span></td>
@@ -541,52 +540,160 @@ export default function AdminDashboard() {
               </table>
             </div>
           )}
+
+          {/* CLIENTS VIEW */}
+          {!loading && view === "clients" && (
+            <div className="ticket-table-card">
+              <div className="table-header">
+                <h3>Client Approvals ({clients.length})</h3>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Client / Company</th>
+                    <th>Email</th>
+                    <th>Department</th>
+                    <th>Reason</th>
+                    <th>Status / Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {clients.map(c => (
+                    <tr key={c.id}>
+                      <td>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                          <span style={{ fontWeight: 600 }}>{c.name}</span>
+                        </div>
+                      </td>
+                      <td style={{ color: "var(--text-dim)" }}>{c.email}</td>
+                      <td><span className="badge badge-closed">{c.department || "N/A"}</span></td>
+                      <td style={{ maxWidth: 200, fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                        {c.reason || "N/A"}
+                      </td>
+                      <td>
+                        {c.is_approved ? (
+                          <span className="badge badge-resolved">Approved</span>
+                        ) : (
+                          <button 
+                            className="btn btn-primary btn-sm" 
+                            style={{ background: "var(--success)" }}
+                            onClick={() => approveClient(c.id)}
+                          >
+                            Approve Access
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {clients.length === 0 && (
+                    <tr><td colSpan={5} style={{ textAlign: "center", padding: "3rem", color: "var(--text-muted)" }}>No clients registered yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* INTEGRATIONS & PAYMENT VIEW */}
+          {!loading && view === "integrations" && (
+            <div className="ticket-table-card" style={{ display: "flex", flexDirection: "row", padding: 0 }}>
+              <div style={{ width: "250px", borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column" }}>
+                <div style={{ padding: "1.2rem", fontWeight: 700, borderBottom: "1px solid var(--border)", fontSize: "0.9rem" }}>Settings Hub</div>
+                <div style={{ flex: 1, overflowY: "auto", padding: "0.5rem" }}>
+                  {[
+                    { id: "outlook", label: "Outlook Support", icon: "📧" },
+                    { id: "calendar", label: "Google Calendar", icon: "📅" },
+                    { id: "slack", label: "Slack Notifications", icon: "💬" },
+                    { id: "discord", label: "Discord Notifications", icon: "🎮" },
+                    { id: "teams", label: "Microsoft Teams", icon: "👥" },
+                    { id: "crm", label: "CRM (HubSpot/Salesforce)", icon: "📈" },
+                    { id: "stripe", label: "Stripe Lookup", icon: "💳" },
+                    { id: "shopify", label: "Shopify Lookup", icon: "🛍️" },
+                    { id: "woo", label: "WooCommerce", icon: "🛒" },
+                    { id: "api", label: "REST API", icon: "🔌" },
+                    { id: "payment", label: "Payment System", icon: "💰" },
+                  ].map(tab => (
+                    <div 
+                      key={tab.id} 
+                      onClick={() => setIntegrationTab(tab.id)}
+                      style={{ 
+                        padding: "0.75rem 1rem", 
+                        cursor: "pointer", 
+                        borderRadius: "8px",
+                        marginBottom: "0.25rem",
+                        background: integrationTab === tab.id ? "var(--bg-active)" : "transparent",
+                        color: integrationTab === tab.id ? "var(--primary)" : "var(--text-color)",
+                        fontWeight: integrationTab === tab.id ? 600 : 400,
+                        fontSize: "0.85rem",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.5rem"
+                      }}
+                    >
+                      <span style={{ fontSize: "1.1rem" }}>{tab.icon}</span> {tab.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ flex: 1, padding: "2rem" }}>
+                <h3 style={{ fontSize: "1.5rem", marginBottom: "0.5rem", fontWeight: 700 }}>
+                  {integrationTab === "outlook" && "Microsoft Outlook Integration"}
+                  {integrationTab === "calendar" && "Google Calendar Integration"}
+                  {integrationTab === "slack" && "Slack Notifications"}
+                  {integrationTab === "discord" && "Discord Notifications"}
+                  {integrationTab === "teams" && "Microsoft Teams Setup"}
+                  {integrationTab === "crm" && "CRM Integrations"}
+                  {integrationTab === "stripe" && "Stripe Payment Setup"}
+                  {integrationTab === "shopify" && "Shopify Customers"}
+                  {integrationTab === "woo" && "WooCommerce Connector"}
+                  {integrationTab === "api" && "Third-Party REST API"}
+                  {integrationTab === "payment" && "SaaS Payment System"}
+                </h3>
+                <p style={{ color: "var(--text-muted)", marginBottom: "2rem", fontSize: "0.9rem" }}>
+                  Configure your API keys, webhooks, and sync settings for this integration securely.
+                </p>
+
+                <div className="form-group" style={{ maxWidth: "500px" }}>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Enable Integration</label>
+                  <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.25rem", cursor: "pointer" }}>
+                    <input type="checkbox" style={{ transform: "scale(1.2)" }} />
+                    <span style={{ fontSize: "0.85rem", color: "var(--text-title)" }}>Active</span>
+                  </label>
+                </div>
+
+                {integrationTab === "payment" ? (
+                  <>
+                    <div className="form-group" style={{ maxWidth: "500px", marginTop: "1.5rem" }}>
+                      <label className="form-label">Stripe Public Key</label>
+                      <input className="form-input" type="text" placeholder="pk_test_..." />
+                    </div>
+                    <div className="form-group" style={{ maxWidth: "500px" }}>
+                      <label className="form-label">Stripe Secret Key</label>
+                      <input className="form-input" type="password" placeholder="sk_test_..." />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="form-group" style={{ maxWidth: "500px", marginTop: "1.5rem" }}>
+                      <label className="form-label">API Key / Token</label>
+                      <input className="form-input" type="password" placeholder={`Enter your ${integrationTab} key...`} />
+                    </div>
+                    {["slack", "discord", "teams"].includes(integrationTab) && (
+                      <div className="form-group" style={{ maxWidth: "500px" }}>
+                        <label className="form-label">Webhook URL</label>
+                        <input className="form-input" type="text" placeholder="https://..." />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <button className="btn btn-primary" style={{ marginTop: "1rem" }}>
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
-
-      {/* CREATE TICKET MODAL */}
-      {showCreateModal && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowCreateModal(false)}>
-          <div className="modal">
-            <div className="modal-title">🎫 Create New Ticket</div>
-            <div className="form-group">
-              <label className="form-label">Subject *</label>
-              <input className="form-input" placeholder="e.g. Login not working" value={form.subject} onChange={e => setForm(p => ({ ...p, subject: e.target.value }))} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Customer Name *</label>
-              <input className="form-input" placeholder="John Smith" value={form.customer} onChange={e => setForm(p => ({ ...p, customer: e.target.value }))} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Customer Email</label>
-              <input className="form-input" type="email" placeholder="john@example.com" value={form.customerEmail} onChange={e => setForm(p => ({ ...p, customerEmail: e.target.value }))} />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-              <div className="form-group">
-                <label className="form-label">Priority</label>
-                <select className="form-select" value={form.priority} onChange={e => setForm(p => ({ ...p, priority: e.target.value }))}>
-                  {["urgent", "high", "medium", "low"].map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Assign To</label>
-                <select className="form-select" value={form.assignedToId} onChange={e => setForm(p => ({ ...p, assignedToId: e.target.value }))}>
-                  <option value="">Unassigned</option>
-                  {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Initial Message</label>
-              <textarea className="form-textarea" placeholder="Describe the customer's issue..." value={form.message} onChange={e => setForm(p => ({ ...p, message: e.target.value }))} />
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={() => setShowCreateModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={createTicket} disabled={!form.subject || !form.customer}>Create Ticket</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* CREATE AGENT MODAL */}
       {showCreateAgent && (

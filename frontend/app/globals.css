@@ -418,6 +418,7 @@ tbody tr:last-child td { border-bottom: none; }
   box-shadow: 0 0 0 3px var(--primary-glow);
 }
 .form-select { appearance: none; cursor: pointer; }
+.form-select option { background-color: var(--bg-card); color: var(--text); }
 .form-textarea { resize: vertical; min-height: 90px; }
 
 /* ─── TICKET SIDEBAR (AGENT VIEW) ─────────────── */

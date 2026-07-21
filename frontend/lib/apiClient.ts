@@ -28,6 +28,7 @@ export function getUserInfo() {
     id: localStorage.getItem('userId'),
     name: localStorage.getItem('userName'),
     role: localStorage.getItem('userRole'),
+    email: localStorage.getItem('userEmail'),
   };
 }
 
@@ -37,5 +38,6 @@ export function logout() {
   localStorage.removeItem('userRole');
   localStorage.removeItem('userName');
   localStorage.removeItem('userId');
+  localStorage.removeItem('userEmail');
   window.location.href = '/login';
 }

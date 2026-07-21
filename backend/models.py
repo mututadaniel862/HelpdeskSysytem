@@ -11,8 +11,12 @@ class User(Base):
     name = Column(String, nullable=True)
     email = Column(String, unique=True, index=True, nullable=True)
     password = Column(String, nullable=True)
-    role = Column(String, default="AGENT")  # SUPER_ADMIN, ADMIN, AGENT
+    role = Column(String, default="AGENT")  # SUPER_ADMIN, ADMIN, AGENT, CLIENT
     is_active = Column("isActive", Boolean, default=True)
+    is_approved = Column("isApproved", Boolean, default=False)
+    department = Column(String, nullable=True)
+    reason = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
 
     # relations
     created_tickets = relationship("Ticket", foreign_keys="[Ticket.created_by_id]", back_populates="created_by")
@@ -35,6 +39,7 @@ class Ticket(Base):
 
     created_at = Column("createdAt", DateTime(timezone=True), server_default=func.now())
     updated_at = Column("updatedAt", DateTime(timezone=True), onupdate=func.now())
+    closed_at = Column("closedAt", DateTime(timezone=True), nullable=True)
 
     created_by_id = Column("createdById", String, ForeignKey("users.id"))
     assigned_to_id = Column("assignedToId", String, ForeignKey("users.id"), nullable=True)

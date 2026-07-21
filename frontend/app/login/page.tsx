@@ -30,9 +30,11 @@ export default function LoginPage() {
         localStorage.setItem("userRole", data.role);
         localStorage.setItem("userName", data.name);
         localStorage.setItem("userId", data.id);
+        localStorage.setItem("userEmail", data.email || "");
 
         if (data.role === "SUPER_ADMIN") router.push("/super-admin");
         else if (data.role === "ADMIN") router.push("/admin");
+        else if (data.role === "CLIENT") router.push("/dashboard");
         else router.push("/agent");
 
       } catch {
@@ -104,6 +106,14 @@ export default function LoginPage() {
           <p style={{ fontSize: "0.75rem", color: "var(--text-dim)", cursor: "pointer" }} onClick={() => { setEmail("admin@helpdesk.com"); setPassword("admin123"); }}>🛡 admin@helpdesk.com / <strong>admin123</strong></p>
           <p style={{ fontSize: "0.75rem", color: "var(--text-dim)", cursor: "pointer" }} onClick={() => { setEmail("agent@helpdesk.com"); setPassword("agent123"); }}>🎧 agent@helpdesk.com / <strong>agent123</strong></p>
         </div>
+
+        <button
+          className="btn btn-ghost"
+          style={{ width: "100%", justifyContent: "center", marginTop: "1.5rem" }}
+          onClick={() => router.push("/register")}
+        >
+          Don't have an account? Register
+        </button>
       </div>
     </div>
   );

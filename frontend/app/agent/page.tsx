@@ -14,6 +14,7 @@ type Ticket = {
   subject: string;
   customer: string;
   customerEmail?: string;
+  customerPhone?: string;
   status: string;
   priority: string;
   slaDeadline?: string;
@@ -113,35 +114,41 @@ export default function AgentDashboard() {
     return "";
   };
 
+  const generateDraft = async (ticket: Ticket) => {
+    if (ticket.messages.length === 0) return;
+    
+    setTickets(p => p.map(t => t.id === ticket.id ? { ...t, drafting: true } : t));
+
+    const lastMsg = ticket.messages[ticket.messages.length - 1].text;
+    const history = ticket.messages.map(m => `${m.sender}: ${m.text}`).join("\n");
+
+    try {
+      const res = await apiFetch("/drafts/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: lastMsg, subject: ticket.subject, history }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTickets(p => p.map(t =>
+          t.id === ticket.id
+            ? { ...t, drafting: false, draft: data.draft, sentiment: data.sentiment, suggestedActions: data.suggestedActions }
+            : t
+        ));
+      } else {
+        setTickets(p => p.map(t => t.id === ticket.id ? { ...t, drafting: false } : t));
+      }
+    } catch {
+      setTickets(p => p.map(t => t.id === ticket.id ? { ...t, drafting: false } : t));
+    }
+  };
+
   const selectTicket = async (ticket: Ticket) => {
     setActiveId(ticket.id);
     setInputText("");
 
     if (!ticket.draft && ticket.messages.length > 0) {
-      setTickets(p => p.map(t => t.id === ticket.id ? { ...t, drafting: true } : t));
-
-      const lastMsg = ticket.messages[ticket.messages.length - 1].text;
-      const history = ticket.messages.map(m => `${m.sender}: ${m.text}`).join("\n");
-
-      try {
-        const res = await apiFetch("/drafts/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: lastMsg, subject: ticket.subject, history }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setTickets(p => p.map(t =>
-            t.id === ticket.id
-              ? { ...t, drafting: false, draft: data.draft, sentiment: data.sentiment, suggestedActions: data.suggestedActions }
-              : t
-          ));
-        } else {
-          setTickets(p => p.map(t => t.id === ticket.id ? { ...t, drafting: false } : t));
-        }
-      } catch {
-        setTickets(p => p.map(t => t.id === ticket.id ? { ...t, drafting: false } : t));
-      }
+      generateDraft(ticket);
     }
   };
 
@@ -184,9 +191,9 @@ export default function AgentDashboard() {
     await apiFetch(`/tickets/${activeId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "resolved" }),
+      body: JSON.stringify({ status: "closed" }),
     });
-    setTickets(p => p.map(t => t.id === activeId ? { ...t, status: "resolved" } : t));
+    setTickets(p => p.map(t => t.id === activeId ? { ...t, status: "closed" } : t));
   };
 
   const userName = user?.name || "Agent";
@@ -216,7 +223,7 @@ export default function AgentDashboard() {
           {[
             { key: "all", label: "All Tickets", icon: "📋" },
             { key: "open", label: "Open / Active", icon: "🟡" },
-            { key: "resolved", label: "Resolved", icon: "✅" },
+            { key: "resolved", label: "Closed / Resolved", icon: "✅" },
           ].map(f => (
             <div key={f.key} className={`nav-item ${filter === f.key ? "active" : ""}`} onClick={() => setFilter(f.key)}>
               <span className="nav-icon">{f.icon}</span>
@@ -291,10 +298,24 @@ export default function AgentDashboard() {
                 <div className="chat-topbar">
                   <div>
                     <h2>{activeTicket.subject}</h2>
-                    <div className="chat-topbar-meta">
-                      {activeTicket.customer}
-                      {activeTicket.customerEmail && ` · ${activeTicket.customerEmail}`}
-                      {" · "}#{activeTicket.id.slice(-6)}
+                    <div className="chat-topbar-meta" style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                      <span>{activeTicket.customer}</span>
+                      {activeTicket.customerEmail && <span>· {activeTicket.customerEmail}</span>}
+                      {activeTicket.customerPhone && (
+                        <a 
+                          href={`https://wa.me/${activeTicket.customerPhone.replace(/\D/g,'')}?text=Hello%20${activeTicket.customer},%20this%20is%20Support%20regarding%20ticket%20%23${activeTicket.id.slice(-6)}`}
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="btn btn-sm"
+                          style={{ background: "#25D366", color: "white", padding: "0.15rem 0.5rem", fontSize: "0.7rem", display: "inline-flex", alignItems: "center", gap: "0.25rem", textDecoration: "none" }}
+                        >
+                          <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor">
+                            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.888-.788-1.489-1.761-1.663-2.06-.173-.299-.018-.461.13-.611.134-.136.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+                          </svg>
+                          WhatsApp
+                        </a>
+                      )}
+                      <span>· #{activeTicket.id.slice(-6)}</span>
                     </div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
@@ -304,8 +325,8 @@ export default function AgentDashboard() {
                       </span>
                     )}
                     <SLATimer deadline={activeTicket.slaDeadline} />
-                    {activeTicket.status === "open" || activeTicket.status === "in-progress" ? (
-                      <button className="btn btn-success btn-sm" onClick={resolveTicket}>✔ Resolve</button>
+                    {activeTicket.status === "open" || activeTicket.status === "in-progress" || activeTicket.status === "resolved" ? (
+                      <button className="btn btn-success btn-sm" style={{ background: "var(--danger)" }} onClick={resolveTicket}>✔ Close Ticket</button>
                     ) : (
                       <span className={`badge badge-${activeTicket.status}`}>{activeTicket.status}</span>
                     )}
@@ -341,6 +362,7 @@ export default function AgentDashboard() {
                         ✨ AI Co-Pilot Draft
                       </div>
                       <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => generateDraft(activeTicket)}>⟳ Regenerate</button>
                         <button className="btn btn-success btn-sm" onClick={acceptDraft}>Use Draft</button>
                         <button className="btn btn-ghost btn-sm" onClick={() => setTickets(p => p.map(t => t.id === activeId ? { ...t, draft: undefined } : t))}>✕</button>
                       </div>

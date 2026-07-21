@@ -14,6 +14,7 @@ export default function RootPage() {
     const role = localStorage.getItem("userRole");
     if (role === "SUPER_ADMIN") router.push("/super-admin");
     else if (role === "ADMIN") router.push("/admin");
+    else if (role === "CLIENT") router.push("/dashboard");
     else router.push("/agent");
   }, [router]);
 

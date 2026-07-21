@@ -7,12 +7,17 @@ class UserBase(BaseModel):
     email: EmailStr
     role: str = "AGENT"
     is_active: bool = True
+    is_approved: bool = False
+    department: Optional[str] = None
+    reason: Optional[str] = None
+    phone: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
 
 class UserResponse(UserBase):
     id: str
+    metrics: Optional[dict] = None
 
     class Config:
         from_attributes = True
@@ -50,6 +55,7 @@ class TicketUpdate(BaseModel):
 class TicketResponse(TicketBase):
     id: str
     created_at: datetime
+    closed_at: Optional[datetime] = None
     sla_deadline: Optional[datetime] = None
     
     messages: List[MessageResponse] = []

@@ -1,9 +1,13 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse, HTMLResponse
 from sqlalchemy.orm import Session
+import sqlalchemy.exc
 from typing import List
 from datetime import timedelta
 import uvicorn
@@ -33,6 +37,31 @@ app.add_middleware(
 @app.on_event("startup")
 def seed_data():
     db = next(get_db())
+    
+    # Run structural migrations
+    print("Running db migrations if necessary...")
+    from sqlalchemy import text
+    try:
+        with engine.begin() as conn:
+            conn.execute(text('ALTER TABLE users ADD COLUMN department VARCHAR;'))
+    except: pass
+    try:
+        with engine.begin() as conn:
+            conn.execute(text('ALTER TABLE users ADD COLUMN reason VARCHAR;'))
+    except: pass
+    try:
+        with engine.begin() as conn:
+            conn.execute(text('ALTER TABLE users ADD COLUMN "isApproved" BOOLEAN DEFAULT false;'))
+    except: pass
+    try:
+        with engine.begin() as conn:
+            conn.execute(text('ALTER TABLE users ADD COLUMN phone VARCHAR;'))
+    except: pass
+    try:
+        with engine.begin() as conn:
+            conn.execute(text('ALTER TABLE tickets ADD COLUMN "closedAt" TIMESTAMP WITH TIME ZONE;'))
+    except: pass
+
     if not db.query(models.User).first():
         print("🌱 Seeding demo accounts...")
         super_admin = models.User(id="usr_1", name="Super Admin", email="super@helpdesk.com",
@@ -72,12 +101,16 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail="Incorrect email or password",
                             headers={"WWW-Authenticate": "Bearer"})
+    if user.role == "CLIENT" and not user.is_approved:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Your account is pending admin approval.")
+        
     token = auth.create_access_token(
         data={"sub": user.id},
         expires_delta=timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     return {"access_token": token, "token_type": "bearer",
-            "role": user.role, "name": user.name, "id": user.id}
+            "role": user.role, "name": user.name, "id": user.id, "email": user.email}
 
 
 # ─────────────────────────────────────────
@@ -86,20 +119,80 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 @app.get("/api/users", response_model=List[schemas.UserResponse])
 def get_users(role: str = None, db: Session = Depends(get_db),
               current_user: models.User = Depends(auth.get_current_user)):
-    query = db.query(models.User)
-    if role:
-        query = query.filter(models.User.role == role)
-    users = query.all()
-    result = []
-    for u in users:
-        d = {c.key: getattr(u, c.key) for c in u.__table__.columns}
-        # rename DB column isActive → is_active
-        if "isActive" in d:
-            d["is_active"] = d.pop("isActive")
-        d["_count"] = {"assignedTickets": len(u.assigned_tickets)}
-        result.append(d)
-    return result
+    try:
+        query = db.query(models.User)
+        if role:
+            query = query.filter(models.User.role == role)
+        users = query.all()
+        result = []
+        for u in users:
+            open_count = len([t for t in u.assigned_tickets if t.status == "open"])
+            closed_count = len([t for t in u.assigned_tickets if t.status in ["closed", "resolved"]])
+            progress_count = len([t for t in u.assigned_tickets if t.status == "in-progress"])
+            result.append({
+                "id": u.id,
+                "name": u.name,
+                "email": u.email,
+                "role": u.role,
+                "is_active": u.is_active,
+                "is_approved": u.is_approved,
+                "department": u.department,
+                "reason": u.reason,
+                "phone": u.phone,
+                "metrics": {
+                    "total": len(u.assigned_tickets),
+                    "open": open_count,
+                    "closed": closed_count,
+                    "inProgress": progress_count
+                },
+            })
+        return result
+    except Exception as e:
+        import traceback
+        raise HTTPException(status_code=400, detail=traceback.format_exc())
 
+
+@app.post("/api/users/register", response_model=schemas.UserResponse)
+def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    if user.email.lower().endswith("@gmail.com"):
+        raise HTTPException(status_code=400, detail="Personal Gmail addresses are not allowed. Please use a company email.")
+    try:
+        import uuid
+        hashed = auth.get_password_hash(user.password)
+        new_user = models.User(
+            id=str(uuid.uuid4()), 
+            name=user.name, 
+            email=user.email,
+            password=hashed, 
+            role="CLIENT",
+            is_active=True,
+            is_approved=False,
+            department=user.department,
+            reason=user.reason,
+            phone=user.phone
+        )
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        
+        return {
+            "id": new_user.id,
+            "name": new_user.name,
+            "email": new_user.email,
+            "role": new_user.role,
+            "is_active": new_user.is_active,
+            "is_approved": new_user.is_approved,
+            "department": new_user.department,
+            "reason": new_user.reason,
+            "phone": new_user.phone
+        }
+    except sqlalchemy.exc.IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="An account with this email already exists.")
+    except Exception as e:
+        db.rollback()
+        import traceback
+        raise HTTPException(status_code=400, detail=traceback.format_exc())
 
 @app.post("/api/users", response_model=schemas.UserResponse)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db),
@@ -120,9 +213,13 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db),
             "name": new_user.name,
             "email": new_user.email,
             "role": new_user.role,
-            "is_active": new_user.isActive,
+            "is_active": new_user.is_active,
         }
+    except sqlalchemy.exc.IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="An account with this email already exists.")
     except Exception as e:
+        db.rollback()
         import traceback
         raise HTTPException(status_code=400, detail=traceback.format_exc())
 
@@ -134,6 +231,8 @@ def update_user(body: dict, db: Session = Depends(get_db),
         raise HTTPException(status_code=404)
     if "isActive" in body:
         user.is_active = body["isActive"]
+    if "isApproved" in body:
+        user.is_approved = body["isApproved"]
     db.commit()
     return {"status": "ok"}
 
@@ -144,7 +243,14 @@ def update_user(body: dict, db: Session = Depends(get_db),
 @app.get("/api/tickets")
 def get_tickets(db: Session = Depends(get_db),
                 current_user: models.User = Depends(auth.get_current_user)):
-    tickets = db.query(models.Ticket).all()
+    query = db.query(models.Ticket)
+    
+    if current_user.role == "AGENT":
+        query = query.filter(models.Ticket.assigned_to_id == current_user.id)
+    elif current_user.role == "CLIENT":
+        query = query.filter(models.Ticket.created_by_id == current_user.id)
+        
+    tickets = query.all()
     result = []
     for t in tickets:
         msgs = [{"id": m.id, "sender": m.sender, "text": m.text,
@@ -156,10 +262,12 @@ def get_tickets(db: Session = Depends(get_db),
             "subject": t.subject,
             "customer": t.customer,
             "customerEmail": t.customer_email,
+            "customerPhone": t.created_by.phone if t.created_by else None,
             "status": t.status,
             "priority": t.priority,
             "slaDeadline": t.sla_deadline.isoformat() if t.sla_deadline else None,
             "createdAt": t.created_at.isoformat() if t.created_at else None,
+            "closedAt": t.closed_at.isoformat() if t.closed_at else None,
             "messages": msgs,
             "assignedTo": at,
         })
@@ -209,6 +317,11 @@ def update_ticket(ticket_id: str, ticket: schemas.TicketUpdate, db: Session = De
         db_ticket.priority = ticket.priority
     if ticket.status:
         db_ticket.status = ticket.status
+        if ticket.status in ["closed", "resolved"]:
+            from sqlalchemy.sql import func
+            db_ticket.closed_at = func.now()
+        else:
+            db_ticket.closed_at = None
     if ticket.assigned_to_id is not None:
         db_ticket.assigned_to_id = ticket.assigned_to_id or None
     db.commit()
@@ -271,9 +384,7 @@ def generate_draft(request: dict, current_user: models.User = Depends(auth.get_c
     try:
         gemini_key = os.getenv("GEMINI_API_KEY")
         if gemini_key:
-            import google.generativeai as genai
-            genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            import requests
             prompt = f"""You are a professional customer support agent. 
 Analyze this conversation and generate a helpful, empathetic email reply.
 
@@ -287,9 +398,19 @@ Please respond with ONLY a JSON object (no markdown) in this format:
   "draft": "the full reply text here",
   "suggestedActions": ["action1", "action2"]
 }}"""
-            resp = model.generate_content(prompt)
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.8}
+            }
+            resp = requests.post(url, json=payload)
+            if resp.status_code != 200:
+                raise Exception(f"API Error {resp.status_code}: {resp.text}")
+            
+            data = resp.json()
+            text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            
             import json
-            text = resp.text.strip()
             if text.startswith("```"):
                 text = text.split("```")[1]
                 if text.startswith("json"):
@@ -297,20 +418,7 @@ Please respond with ONLY a JSON object (no markdown) in this format:
             return json.loads(text.strip())
     except Exception as e:
         print(f"Gemini error: {e}")
-
-    # Fallback mock
-    if "frustrat" in message or "angry" in message or "broken" in message or "missing" in message:
-        return {"sentiment": "Frustrated",
-                "draft": f"Dear [Customer Name],\n\nI sincerely apologize for the trouble you've experienced with your [Order/Issue]. I completely understand your frustration and I'm making this my top priority right now.\n\nCould you please confirm your [Order Number] so I can look into this immediately?\n\nBest regards,\nSupport Team",
-                "suggestedActions": ["Offer Refund", "Escalate to Manager", "Create Replacement Order"]}
-    elif "how to" in message or "confused" in message or "help" in message:
-        return {"sentiment": "Confused",
-                "draft": f"Hi [Customer Name],\n\nThank you for reaching out! I'd be happy to walk you through this step by step.\n\nTo [resolve your issue], please follow these steps:\n1. [Step 1]\n2. [Step 2]\n\nPlease let me know if you need any further assistance.\n\nKind regards,\nSupport Team",
-                "suggestedActions": ["Link FAQ Article", "Schedule Call", "Send Tutorial"]}
-    else:
-        return {"sentiment": "Neutral",
-                "draft": f"Dear [Customer Name],\n\nThank you for contacting us. I've received your message and I'm looking into it right away.\n\nCould you provide your [Account ID / Order Number] so I can better assist you?\n\nKind regards,\nSupport Team",
-                "suggestedActions": ["Request More Info", "Check Account"]}
+        raise HTTPException(status_code=500, detail=f"Gemini API failed: {str(e)}")
 
 
 # ─────────────────────────────────────────
